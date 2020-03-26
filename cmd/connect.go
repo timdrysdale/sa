@@ -18,22 +18,92 @@ package cmd
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"os/signal"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"github.com/timdrysdale/grwc"
+	"github.com/timdrysdale/ts"
 )
 
 // connectCmd represents the connect command
 var connectCmd = &cobra.Command{
 	Use:   "connect",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Connect to a service via a websocket client",
+	Long:  `Listens at local service port, and relays messsages to a websocket relay server.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("connect called")
+
+		lcl := viper.GetString("local")
+		rem := viper.GetString("remote")
+		fmt.Printf("serve called with:\nlocal %s\nremote %s\n", lcl, rem)
+
+		closed := make(chan struct{})
+
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+
+		go func() {
+			for _ = range c {
+				close(closed)
+			}
+		}()
+
+		// start the local connection
+
+		lclConfig := &ts.Config{
+			MaxFrameBytes: 512,
+			Destination:   lcl,
+		}
+
+		ts := ts.New(lclConfig)
+		go ts.Run(closed)
+
+		// start the remote connection
+		remConfig := grwc.Config{
+			Destination:         rem,
+			ExclusiveConnection: true, //force msgs to []byte on Receive channel
+		}
+		wc, err := grwc.New(&remConfig)
+
+		if err != nil {
+			log.Fatalf("Problem creating websocket client")
+		}
+
+		go wc.Run(closed)
+
+		//connect messages from each port
+		go func() {
+		LOOP:
+			for {
+				select {
+				case msg, ok := <-ts.Receive:
+					if ok {
+						wc.Send <- msg
+					}
+				case <-closed:
+					break LOOP
+				}
+			}
+		}()
+
+		go func() {
+		LOOP:
+			for {
+				select {
+				case msg, ok := <-wc.Receive:
+					if ok {
+						ts.Send <- msg
+					}
+				case <-closed:
+					break LOOP
+				}
+			}
+		}()
+		//wait for ctrl-c
+		<-closed
+
 	},
 }
 

@@ -62,7 +62,7 @@ var serveCmd = &cobra.Command{
 		// start the remote connection
 		remConfig := grwc.Config{
 			Destination:         rem,
-			ExclusiveConnection: false,
+			ExclusiveConnection: true, //force msgs to []byte on Receive channel
 		}
 		wc, err := grwc.New(&remConfig)
 
