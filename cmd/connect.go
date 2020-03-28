@@ -53,7 +53,7 @@ var connectCmd = &cobra.Command{
 		// start the local connection
 
 		lclConfig := &ts.Config{
-			MaxFrameBytes: 512,
+			MaxFrameBytes: 1024000,
 			Destination:   lcl,
 		}
 
